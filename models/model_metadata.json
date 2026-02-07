@@ -1,0 +1,29 @@
+{
+    "model_name": "Telco Customer Churn - Ensemble Predictor",
+    "model_type": "Soft Voting Ensemble",
+    "ensemble_components": [
+        "Logistic Regression",
+        "Gradient Boosting",
+        "CatBoost"
+    ],
+    "weights": [
+        0.333333,
+        0.333333,
+        0.333333
+    ],
+    "voting_method": "soft (probability averaging)",
+    "test_roc_auc": 0.8470164424720216,
+    "test_accuracy": 0.8021769995267393,
+    "test_precision": 0.667447306791569,
+    "test_recall": 0.5080213903743316,
+    "test_f1": 0.5769230769230769,
+    "cv_roc_auc_mean": 0.8476098496394571,
+    "cv_roc_auc_std": 0.011998651291413365,
+    "train_set_size": 4930,
+    "test_set_size": 2113,
+    "n_features": 35,
+    "feature_scaling": "StandardScaler (fitted on training data)",
+    "target_variable": "Churn",
+    "training_date": "2026-02-07 12:15:10",
+    "notes": "Ensemble selected over individual models due to marginally better generalization"
+}

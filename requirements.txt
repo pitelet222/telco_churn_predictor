@@ -1,0 +1,35 @@
+
+# Data exploration and cleaning
+numpy
+pandas
+scikit-learn
+imblearn
+catboost
+statsmodels
+
+# ML models & optimizers
+
+xgboost
+lightgbm
+shap
+optuna
+
+# Visualization
+matplotlib
+seaborn
+plotly
+graphviz
+scipy
+six
+
+# Notebook features
+jupyterlab
+ipykernel
+
+# Extra features 
+
+# API & Deployment
+fastapi
+uvicorn[standard]
+pydantic
+requests
