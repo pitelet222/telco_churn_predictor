@@ -207,7 +207,7 @@ app.py renders everything in Streamlit chat UI (supports follow-up questions)
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/yourusername/telco-churn-prediction.git
+git clone https://github.com/pitelet222/telco-churn-prediction.git
 cd telco-churn-prediction
 
 # 2. Create a virtual environment
