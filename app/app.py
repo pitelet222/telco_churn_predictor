@@ -144,7 +144,9 @@ if result:
                     unsafe_allow_html=True)
     with col_c:
         if result["risk_factors"]:
-            st.markdown("**⚠️ Risk Factors:**")
+            source = result.get("risk_source", "unknown")
+            source_label = "🧠 SHAP (model-based)" if source == "shap" else "📋 EDA (manual rules)"
+            st.markdown(f"**⚠️ Risk Factors** · _{source_label}_")
             for f in result["risk_factors"]:
                 st.markdown(f"- {f}")
 

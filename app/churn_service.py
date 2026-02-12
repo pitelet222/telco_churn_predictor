@@ -228,13 +228,16 @@ def predict_churn(customer_data: dict) -> dict:
     # with fallback to manual rules if SHAP fails.
     try:
         risk_factors = _detect_risk_factors_shap(features_scaled.values, features)
+        risk_source = "shap"
     except Exception:
         risk_factors = _detect_risk_factors(customer_data, proba)
+        risk_source = "manual"
 
     return {
         "churn_probability": round(float(proba), 4),
         "risk_level": risk,
         "risk_factors": risk_factors,
+        "risk_source": risk_source,
         "customer_summary": _build_customer_summary(customer_data),
     }
 
