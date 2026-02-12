@@ -6,6 +6,7 @@ and recommends personalised retention strategies via GPT.
 
 import sys
 from pathlib import Path
+from typing import cast
 
 # Ensure project root and app dir are on sys.path so imports work
 _app_dir = str(Path(__file__).resolve().parent)
@@ -16,6 +17,7 @@ if _root_dir not in sys.path:
     sys.path.insert(0, _root_dir)
 
 import streamlit as st
+from openai.types.chat import ChatCompletionMessageParam
 from churn_service import predict_churn, CUSTOMER_FIELDS, get_model_metadata
 from llm_client import get_retention_advice, chat_general
 
@@ -178,10 +180,13 @@ if result:
         with st.chat_message("assistant"):
             with st.spinner("Thinking..."):
                 try:
-                    history = [
-                        {"role": m["role"], "content": m["content"]}
-                        for m in st.session_state.messages[:-1]
-                    ]
+                    history = cast(
+                        list[ChatCompletionMessageParam],
+                        [
+                            {"role": m["role"], "content": m["content"]}
+                            for m in st.session_state.messages[:-1]
+                        ]
+                    )
                     reply = get_retention_advice(
                         result, user_message=prompt, conversation_history=history
                     )
@@ -212,10 +217,13 @@ else:
         with st.chat_message("assistant"):
             with st.spinner("Thinking..."):
                 try:
-                    history = [
-                        {"role": m["role"], "content": m["content"]}
-                        for m in st.session_state.messages[:-1]
-                    ]
+                    history = cast(
+                        list[ChatCompletionMessageParam],
+                        [
+                            {"role": m["role"], "content": m["content"]}
+                            for m in st.session_state.messages[:-1]
+                        ]
+                    )
                     reply = chat_general(prompt, conversation_history=history)
                 except Exception as e:
                     reply = f"⚠️ LLM error: {e}"

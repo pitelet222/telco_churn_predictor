@@ -10,6 +10,7 @@ import joblib
 import numpy as np
 import pandas as pd
 from pathlib import Path
+from typing import Any
 
 # ── Paths ────────────────────────────────────────────────────────────────────
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -184,6 +185,8 @@ def predict_churn(customer_data: dict) -> dict:
         recommendation     – str short retention suggestion
     """
     models, scaler, metadata = _load_artifacts()
+    if scaler is None:
+        raise RuntimeError("Scaler failed to load from artifacts")
     features = _encode_customer(customer_data)
     features_scaled = scaler.transform(features)
 
@@ -258,7 +261,9 @@ def _build_customer_summary(data: dict) -> str:
     )
 
 
-def get_model_metadata() -> dict:
+def get_model_metadata() -> dict[str, Any]:
     """Return model metadata (performance, training date, etc.)."""
     _, _, metadata = _load_artifacts()
+    if metadata is None:
+        raise RuntimeError("Model metadata not loaded")
     return metadata

@@ -17,13 +17,13 @@
     "test_precision": 0.667447306791569,
     "test_recall": 0.5080213903743316,
     "test_f1": 0.5769230769230769,
-    "cv_roc_auc_mean": 0.8476098496394571,
-    "cv_roc_auc_std": 0.011998651291413365,
+    "cv_roc_auc_mean": 0.8479200456833222,
+    "cv_roc_auc_std": 0.011582662753095229,
     "train_set_size": 4930,
     "test_set_size": 2113,
     "n_features": 35,
     "feature_scaling": "StandardScaler (fitted on training data)",
     "target_variable": "Churn",
-    "training_date": "2026-02-07 12:15:10",
+    "training_date": "2026-02-10 20:40:03",
     "notes": "Ensemble selected over individual models due to marginally better generalization"
 }

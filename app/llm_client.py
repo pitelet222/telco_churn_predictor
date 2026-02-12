@@ -4,7 +4,9 @@ Sends customer churn context to GPT and returns a retention-focused response.
 """
 
 import os
+from typing import Any
 from openai import OpenAI
+from openai.types.chat import ChatCompletionMessageParam
 from dotenv import load_dotenv
 
 # Load .env from project root
@@ -37,9 +39,9 @@ about churn, retention strategies, or telecom industry best practices."""
 
 
 def get_retention_advice(
-    churn_result: dict,
+    churn_result: dict[str, Any],
     user_message: str = "",
-    conversation_history: list | None = None,
+    conversation_history: list[ChatCompletionMessageParam] | None = None,
 ) -> str:
     """
     Call OpenAI to generate retention advice given model output.
@@ -69,7 +71,7 @@ def get_retention_advice(
     for factor in churn_result.get("risk_factors", []):
         prediction_context += f"- {factor}\n"
 
-    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    messages: list[ChatCompletionMessageParam] = [{"role": "system", "content": SYSTEM_PROMPT}]
 
     # Include conversation history (if multi-turn)
     if conversation_history:
@@ -93,15 +95,15 @@ def get_retention_advice(
         max_tokens=600,
     )
 
-    return response.choices[0].message.content
+    return response.choices[0].message.content or ""
 
 
-def chat_general(user_message: str, conversation_history: list | None = None) -> str:
+def chat_general(user_message: str, conversation_history: list[ChatCompletionMessageParam] | None = None) -> str:
     """
     General-purpose chat (no prediction context).
     Useful when the user asks about churn strategies, KPIs, etc.
     """
-    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    messages: list[ChatCompletionMessageParam] = [{"role": "system", "content": SYSTEM_PROMPT}]
     if conversation_history:
         messages.extend(conversation_history)
     messages.append({"role": "user", "content": user_message})
@@ -113,4 +115,4 @@ def chat_general(user_message: str, conversation_history: list | None = None) ->
         max_tokens=600,
     )
 
-    return response.choices[0].message.content
+    return response.choices[0].message.content or ""
