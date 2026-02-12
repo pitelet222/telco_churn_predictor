@@ -9,6 +9,7 @@ import json
 import joblib
 import numpy as np
 import pandas as pd
+import shap
 from pathlib import Path
 from typing import Any
 
@@ -63,6 +64,7 @@ CUSTOMER_FIELDS = {
 _models = None
 _scaler = None
 _metadata = None
+_explainer = None
 
 
 def _load_artifacts():
@@ -81,6 +83,19 @@ def _load_artifacts():
         with open(MODELS_DIR / "model_metadata.json") as f:
             _metadata = json.load(f)
     return _models, _scaler, _metadata
+
+
+def _get_explainer() -> shap.TreeExplainer:
+    """Load SHAP TreeExplainer for model explanations (cached).
+
+    Uses the Gradient Boosting model because tree-based explainers
+    are fast and produce accurate SHAP values.
+    """
+    global _explainer
+    if _explainer is None:
+        models, _, _ = _load_artifacts()
+        _explainer = shap.TreeExplainer(models["gb"])
+    return _explainer
 
 
 # ── Feature engineering (mirrors notebook preprocessing) ────────────────────
@@ -188,7 +203,9 @@ def predict_churn(customer_data: dict) -> dict:
     if scaler is None:
         raise RuntimeError("Scaler failed to load from artifacts")
     features = _encode_customer(customer_data)
-    features_scaled = scaler.transform(features)
+    features_scaled = pd.DataFrame(
+        scaler.transform(features), columns=features.columns
+    )
 
     # Soft voting: average predicted probabilities from 3 models
     probas = np.array([
@@ -207,8 +224,12 @@ def predict_churn(customer_data: dict) -> dict:
     else:
         risk = "Very High"
 
-    # Detect key risk factors
-    risk_factors = _detect_risk_factors(customer_data, proba)
+    # Detect key risk factors using SHAP (model-based),
+    # with fallback to manual rules if SHAP fails.
+    try:
+        risk_factors = _detect_risk_factors_shap(features_scaled.values, features)
+    except Exception:
+        risk_factors = _detect_risk_factors(customer_data, proba)
 
     return {
         "churn_probability": round(float(proba), 4),
@@ -218,8 +239,135 @@ def predict_churn(customer_data: dict) -> dict:
     }
 
 
+# ── SHAP-based risk factor detection ────────────────────────────────────────
+
+# Human-readable names for each encoded feature column.
+_FEATURE_LABELS: dict[str, str] = {
+    "gender":                                "Gender (Male)",
+    "SeniorCitizen":                         "Senior citizen",
+    "Partner":                               "Has partner",
+    "Dependents":                            "Has dependents",
+    "tenure":                                "Customer tenure",
+    "PhoneService":                          "Phone service",
+    "PaperlessBilling":                      "Paperless billing",
+    "MonthlyCharges":                        "Monthly charges",
+    "TotalCharges":                          "Total charges",
+    "MultipleLines_no phone service":        "No phone service (multiple lines)",
+    "MultipleLines_yes":                     "Multiple lines",
+    "OnlineSecurity_no internet service":    "No internet service (online security)",
+    "OnlineSecurity_yes":                    "Online security",
+    "OnlineBackup_no internet service":      "No internet service (online backup)",
+    "OnlineBackup_yes":                      "Online backup",
+    "DeviceProtection_no internet service":  "No internet service (device protection)",
+    "DeviceProtection_yes":                  "Device protection",
+    "TechSupport_no internet service":       "No internet service (tech support)",
+    "TechSupport_yes":                       "Tech support",
+    "StreamingTV_no internet service":       "No internet service (streaming TV)",
+    "StreamingTV_yes":                       "Streaming TV",
+    "StreamingMovies_no internet service":   "No internet service (streaming movies)",
+    "StreamingMovies_yes":                   "Streaming movies",
+    "InternetService_fiber optic":           "Fiber optic internet",
+    "InternetService_no":                    "No internet service",
+    "Contract_one year":                     "One-year contract",
+    "Contract_two year":                     "Two-year contract",
+    "PaymentMethod_credit card (automatic)": "Credit card payment (automatic)",
+    "PaymentMethod_electronic check":        "Electronic check payment",
+    "PaymentMethod_mailed check":            "Mailed check payment",
+    "AvgMonthlyCharges":                     "Average monthly charges",
+    "TenureGroup_1-2yr":                     "Tenure 1-2 years",
+    "TenureGroup_2-4yr":                     "Tenure 2-4 years",
+    "TenureGroup_4-6yr":                     "Tenure 4-6 years",
+    "TotalServices":                         "Total active services",
+}
+
+
+def _format_shap_factor(feature: str, shap_value: float, feat_value: float) -> str:
+    """Convert a SHAP result into a human-readable risk factor string.
+
+    Parameters
+    ----------
+    feature    : encoded column name (e.g. "Contract_two year")
+    shap_value : SHAP contribution (positive = pushes toward churn)
+    feat_value : raw feature value for this customer
+    """
+    label = _FEATURE_LABELS.get(feature, feature)
+    pct = abs(shap_value) * 100
+    direction = "increases" if shap_value > 0 else "decreases"
+
+    # For binary features interpret the 0/1 value
+    if feat_value in (0.0, 1.0) and feature not in (
+        "tenure", "MonthlyCharges", "TotalCharges",
+        "AvgMonthlyCharges", "TotalServices",
+    ):
+        status = "Yes" if feat_value == 1 else "No"
+        return f"{label}: {status} — {direction} risk by {pct:.1f}%"
+
+    # For numeric features include the value
+    if feature == "tenure":
+        return f"{label}: {int(feat_value)} months — {direction} risk by {pct:.1f}%"
+    if feature in ("MonthlyCharges", "TotalCharges", "AvgMonthlyCharges"):
+        return f"{label}: ${feat_value:,.2f} — {direction} risk by {pct:.1f}%"
+    if feature == "TotalServices":
+        return f"{label}: {int(feat_value)} — {direction} risk by {pct:.1f}%"
+
+    return f"{label} — {direction} risk by {pct:.1f}%"
+
+
+def _detect_risk_factors_shap(
+    features_scaled: np.ndarray,
+    features_df: pd.DataFrame,
+    top_n: int = 5,
+) -> list[str]:
+    """Use SHAP to find the features that most influence THIS prediction.
+
+    Unlike the manual heuristic rules, this reflects what the model
+    actually learned and is personalised to each individual customer.
+
+    Parameters
+    ----------
+    features_scaled : scaled feature array (output of scaler.transform)
+    features_df     : unscaled DataFrame (to display original values)
+    top_n           : how many top risk factors to return
+
+    Returns
+    -------
+    list[str]  human-readable risk factor descriptions
+    """
+    explainer = _get_explainer()
+    shap_values = explainer.shap_values(features_scaled)
+
+    # Handle models that return [class_0_shap, class_1_shap]
+    if isinstance(shap_values, list):
+        shap_values = shap_values[1]  # Take Churn (class 1) contributions
+
+    # Build a DataFrame of feature impacts
+    impacts = pd.DataFrame({
+        "feature": features_df.columns,
+        "shap_value": shap_values[0],                   # SHAP for this row
+        "feat_value": features_df.iloc[0].values,        # Original values
+    })
+
+    # Sort by absolute impact (most influential first)
+    impacts["abs_impact"] = impacts["shap_value"].abs()
+    impacts = impacts.sort_values("abs_impact", ascending=False)
+
+    # Take the top_n most impactful features
+    top = impacts.head(top_n)
+
+    factors = [
+        _format_shap_factor(row["feature"], row["shap_value"], row["feat_value"])
+        for _, row in top.iterrows()
+    ]
+    return factors
+
+
+# ── Fallback: manual heuristic rules ────────────────────────────────────────
+
 def _detect_risk_factors(data: dict, proba: float) -> list[str]:
-    """Heuristic risk-factor detection based on known EDA insights."""
+    """Heuristic risk-factor detection based on known EDA insights.
+
+    Kept as a fallback in case SHAP computation fails.
+    """
     factors = []
     if data.get("Contract", "") == "Month-to-month":
         factors.append("Month-to-month contract (highest churn segment)")
