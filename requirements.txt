@@ -27,6 +27,7 @@ jupyterlab
 ipykernel
 
 # Extra features 
+pytest
 
 # API & Deployment
 fastapi
@@ -38,3 +39,8 @@ requests
 streamlit
 openai
 python-dotenv
+
+# Configuration
+pydantic-settings
+
+
