@@ -13,9 +13,16 @@ import shap
 from pathlib import Path
 from typing import Any
 
+import sys
+_root = str(Path(__file__).resolve().parent.parent)
+if _root not in sys.path:
+    sys.path.insert(0, _root)
+
+from config import settings
+
 # ── Paths ────────────────────────────────────────────────────────────────────
 BASE_DIR = Path(__file__).resolve().parent.parent
-MODELS_DIR = BASE_DIR / "models"
+MODELS_DIR = settings.MODELS_DIR
 
 # ── Feature schema (must match training order) ──────────────────────────────
 FEATURE_COLUMNS = [
@@ -319,7 +326,7 @@ def _format_shap_factor(feature: str, shap_value: float, feat_value: float) -> s
 def _detect_risk_factors_shap(
     features_scaled: np.ndarray,
     features_df: pd.DataFrame,
-    top_n: int = 5,
+    top_n: int = settings.SHAP_TOP_N,
 ) -> list[str]:
     """Use SHAP to find the features that most influence THIS prediction.
 

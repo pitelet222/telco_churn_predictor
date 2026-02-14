@@ -3,16 +3,20 @@ LLM Client – OpenAI Integration
 Sends customer churn context to GPT and returns a retention-focused response.
 """
 
-import os
+import sys
+from pathlib import Path
 from typing import Any
 from openai import OpenAI
 from openai.types.chat import ChatCompletionMessageParam
-from dotenv import load_dotenv
 
-# Load .env from project root
-load_dotenv()
+# Ensure project root is on sys.path so we can import config
+_root = str(Path(__file__).resolve().parent.parent)
+if _root not in sys.path:
+    sys.path.insert(0, _root)
 
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+from config import settings
+
+client = OpenAI(api_key=settings.OPENAI_API_KEY)
 
 # ── System prompt (retention specialist persona) ────────────────────────────
 SYSTEM_PROMPT = """You are **ChurnGuard AI**, an expert customer-retention assistant 
@@ -89,10 +93,10 @@ def get_retention_advice(
     messages.append({"role": "user", "content": full_user_msg})
 
     response = client.chat.completions.create(
-        model="gpt-4o-mini",
+        model=settings.OPENAI_MODEL,
         messages=messages,
-        temperature=0.7,
-        max_tokens=600,
+        temperature=settings.OPENAI_TEMPERATURE,
+        max_tokens=settings.OPENAI_MAX_TOKENS,
     )
 
     return response.choices[0].message.content or ""
@@ -109,10 +113,10 @@ def chat_general(user_message: str, conversation_history: list[ChatCompletionMes
     messages.append({"role": "user", "content": user_message})
 
     response = client.chat.completions.create(
-        model="gpt-4o-mini",
+        model=settings.OPENAI_MODEL,
         messages=messages,
-        temperature=0.7,
-        max_tokens=600,
+        temperature=settings.OPENAI_TEMPERATURE,
+        max_tokens=settings.OPENAI_MAX_TOKENS,
     )
 
     return response.choices[0].message.content or ""

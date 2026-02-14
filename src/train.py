@@ -31,10 +31,17 @@ from catboost import CatBoostClassifier
 
 from src.evaluate import evaluate_model
 
+import sys
+_root = str(Path(__file__).resolve().parent.parent)
+if _root not in sys.path:
+    sys.path.insert(0, _root)
+
+from config import settings
+
 # ── Paths ────────────────────────────────────────────────────────────────────
 BASE_DIR = Path(__file__).resolve().parent.parent
-DATA_PATH = BASE_DIR / "data" / "processed" / "telco_churn_cleaned.csv"
-MODELS_DIR = BASE_DIR / "models"
+DATA_PATH = settings.DATA_PATH
+MODELS_DIR = settings.MODELS_DIR
 
 # ── Default hyper-parameters (same as notebook 04) ───────────────────────────
 MODEL_CONFIGS: dict[str, tuple] = {
@@ -85,8 +92,8 @@ def load_data(path: Path = DATA_PATH) -> tuple[pd.DataFrame, pd.Series]:
 def split_and_scale(
     X: pd.DataFrame,
     y: pd.Series,
-    test_size: float = 0.3,
-    random_state: int = 42,
+    test_size: float = settings.TEST_SIZE,
+    random_state: int = settings.RANDOM_STATE,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.Series, pd.Series, StandardScaler]:
     """Stratified train/test split + StandardScaler (fitted on train only).
 
@@ -161,10 +168,10 @@ def cross_validate_ensemble(
     models: dict,
     X: pd.DataFrame,
     y: pd.Series,
-    n_splits: int = 5,
+    n_splits: int = settings.CV_FOLDS,
 ) -> np.ndarray:
     """5-fold stratified CV on the soft-voting ensemble."""
-    cv = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=42)
+    cv = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=settings.RANDOM_STATE)
     scores = []
     for train_idx, val_idx in cv.split(X, y):
         X_cv_train, X_cv_val = X.iloc[train_idx], X.iloc[val_idx]

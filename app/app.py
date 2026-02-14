@@ -18,13 +18,14 @@ if _root_dir not in sys.path:
 
 import streamlit as st
 from openai.types.chat import ChatCompletionMessageParam
+from config import settings
 from churn_service import predict_churn, CUSTOMER_FIELDS, get_model_metadata
 from llm_client import get_retention_advice, chat_general
 
 # ── Page config ─────────────────────────────────────────────────────────────
 st.set_page_config(
-    page_title="ChurnGuard AI",
-    page_icon="🛡️",
+    page_title=settings.APP_TITLE,
+    page_icon=settings.APP_ICON,
     layout="wide",
     initial_sidebar_state="expanded",
 )
