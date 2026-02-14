@@ -1,0 +1,11 @@
+services:
+  api:
+    build: .
+    container_name: churnguard-api
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      - LOG_LEVEL=INFO
+    restart: unless-stopped

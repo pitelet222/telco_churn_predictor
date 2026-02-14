@@ -1,0 +1,38 @@
+# Virtual environments
+venv/
+.venv/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Notebooks & reports (not needed at runtime)
+notebooks/
+reports/
+
+# Raw data (only processed data is needed)
+data/raw/
+data/tableau/
+
+# Git
+.git/
+.github/
+
+# IDE / OS
+.vscode/
+.idea/
+*.swp
+Thumbs.db
+.DS_Store
+
+# Tests (not needed in production image)
+tests/
+.pytest_cache/
+
+# Logs (created at runtime)
+logs/
+
+# Environment files (secrets — never bake into image)
+.env
+.env.example
