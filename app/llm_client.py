@@ -15,6 +15,9 @@ if _root not in sys.path:
     sys.path.insert(0, _root)
 
 from config import settings
+from log_config import get_logger
+
+logger = get_logger(__name__)
 
 client = OpenAI(api_key=settings.OPENAI_API_KEY)
 
@@ -92,12 +95,17 @@ def get_retention_advice(
 
     messages.append({"role": "user", "content": full_user_msg})
 
+    logger.info(
+        "Calling OpenAI (%s) for retention advice — risk_level=%s",
+        settings.OPENAI_MODEL, churn_result.get("risk_level", "?"),
+    )
     response = client.chat.completions.create(
         model=settings.OPENAI_MODEL,
         messages=messages,
         temperature=settings.OPENAI_TEMPERATURE,
         max_tokens=settings.OPENAI_MAX_TOKENS,
     )
+    logger.debug("OpenAI response received (tokens: %s)", response.usage)
 
     return response.choices[0].message.content or ""
 
@@ -112,11 +120,13 @@ def chat_general(user_message: str, conversation_history: list[ChatCompletionMes
         messages.extend(conversation_history)
     messages.append({"role": "user", "content": user_message})
 
+    logger.info("Calling OpenAI (%s) for general chat", settings.OPENAI_MODEL)
     response = client.chat.completions.create(
         model=settings.OPENAI_MODEL,
         messages=messages,
         temperature=settings.OPENAI_TEMPERATURE,
         max_tokens=settings.OPENAI_MAX_TOKENS,
     )
+    logger.debug("OpenAI response received (tokens: %s)", response.usage)
 
     return response.choices[0].message.content or ""

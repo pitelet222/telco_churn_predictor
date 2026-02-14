@@ -37,6 +37,9 @@ if _root not in sys.path:
     sys.path.insert(0, _root)
 
 from config import settings
+from log_config import get_logger
+
+logger = get_logger(__name__)
 
 # ── Paths ────────────────────────────────────────────────────────────────────
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -145,9 +148,9 @@ def train_all_models(
     """
     trained = {}
     for name in MODEL_CONFIGS:
-        print(f"  Training {name}...", end=" ", flush=True)
+        logger.info("Training %s...", name)
         model, elapsed = train_single_model(name, X_train, y_train)
-        print(f"done ({elapsed:.2f}s)")
+        logger.info("Trained %s in %.2fs", name, elapsed)
         trained[name] = (model, elapsed)
     return trained
 
@@ -213,11 +216,11 @@ def save_artifacts(
     }
     for name, filename in artifact_map.items():
         joblib.dump(models[name][0], output_dir / filename)
-        print(f"  ✅ Saved {filename}")
+        logger.info("Saved %s", filename)
 
     # Scaler
     joblib.dump(scaler, output_dir / "scaler.pkl")
-    print("  ✅ Saved scaler.pkl")
+    logger.info("Saved scaler.pkl")
 
     # Metadata
     metadata = {
@@ -239,33 +242,33 @@ def save_artifacts(
     }
     with open(output_dir / "model_metadata.json", "w") as f:
         json.dump(metadata, f, indent=4)
-    print("  ✅ Saved model_metadata.json")
+    logger.info("Saved model_metadata.json")
 
 
 # ── Main entry point ─────────────────────────────────────────────────────────
 
 def run_training_pipeline() -> None:
     """Execute the full training pipeline end-to-end."""
-    print("=" * 70)
-    print("TELCO CHURN – TRAINING PIPELINE")
-    print("=" * 70)
+    logger.info("=" * 70)
+    logger.info("TELCO CHURN – TRAINING PIPELINE")
+    logger.info("=" * 70)
 
     # 1. Load data
-    print("\n📂 Loading data...")
+    logger.info("Loading data...")
     X, y = load_data()
-    print(f"   {X.shape[0]} records, {X.shape[1]} features")
+    logger.info("%d records, %d features", X.shape[0], X.shape[1])
 
     # 2. Split & scale
-    print("\n✂️  Splitting & scaling...")
+    logger.info("Splitting & scaling...")
     X_train, X_test, y_train, y_test, scaler = split_and_scale(X, y)
-    print(f"   Train: {len(X_train)} | Test: {len(X_test)}")
+    logger.info("Train: %d | Test: %d", len(X_train), len(X_test))
 
     # 3. Train all models
-    print("\n🏋️  Training models...")
+    logger.info("Training models...")
     trained = train_all_models(X_train, y_train)
 
     # 4. Evaluate each model
-    print("\n📊 Evaluating models...")
+    logger.info("Evaluating models...")
     results = []
     for name, (model, train_time) in trained.items():
         metrics = evaluate_model(model, X_test, y_test)
@@ -273,10 +276,10 @@ def run_training_pipeline() -> None:
         results.append(result)
 
     results_df = pd.DataFrame(results).sort_values("ROC-AUC", ascending=False)
-    print(results_df.to_string(index=False))
+    logger.info("Model comparison:\n%s", results_df.to_string(index=False))
 
     # 5. Ensemble evaluation
-    print("\n🏆 Evaluating ensemble...")
+    logger.info("Evaluating ensemble...")
     proba_ensemble = ensemble_predict_proba(trained, X_test)
     y_pred_ensemble = (proba_ensemble >= 0.5).astype(int)
 
@@ -288,20 +291,20 @@ def run_training_pipeline() -> None:
         "test_recall": float(recall_score(y_test, y_pred_ensemble)),
         "test_f1": float(f1_score(y_test, y_pred_ensemble)),
     }
-    print(f"   Ensemble ROC-AUC: {ensemble_metrics['test_roc_auc']:.4f}")
+    logger.info("Ensemble ROC-AUC: %.4f", ensemble_metrics["test_roc_auc"])
 
     # 6. Cross-validation
-    print("\n🔄 Cross-validating ensemble (5-fold)...")
+    logger.info("Cross-validating ensemble (%d-fold)...", settings.CV_FOLDS)
     cv_scores = cross_validate_ensemble(trained, X_train, y_train)
-    print(f"   CV ROC-AUC: {cv_scores.mean():.4f} ± {cv_scores.std():.4f}")
+    logger.info("CV ROC-AUC: %.4f ± %.4f", cv_scores.mean(), cv_scores.std())
 
     # 7. Save
-    print("\n💾 Saving artifacts...")
+    logger.info("Saving artifacts...")
     save_artifacts(trained, scaler, ensemble_metrics, cv_scores, X_train, X_test)
 
-    print("\n" + "=" * 70)
-    print("✅ TRAINING PIPELINE COMPLETE")
-    print("=" * 70)
+    logger.info("=" * 70)
+    logger.info("TRAINING PIPELINE COMPLETE")
+    logger.info("=" * 70)
 
 
 if __name__ == "__main__":

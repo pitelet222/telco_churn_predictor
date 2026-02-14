@@ -66,6 +66,17 @@ class Settings(BaseSettings):
     APP_TITLE: str = "ChurnGuard AI"
     APP_ICON: str = "🛡️"
 
+    # ── FastAPI ────────────────────────────────────────────────────────────
+    API_TITLE: str = "ChurnGuard AI API"
+    API_VERSION: str = "1.0.0"
+    API_HOST: str = "0.0.0.0"
+    API_PORT: int = 8000
+    API_CORS_ORIGINS: list[str] = ["*"]
+
+    # ── Logging ────────────────────────────────────────────────────────────
+    LOG_LEVEL: str = "INFO"                    # DEBUG, INFO, WARNING, ERROR, CRITICAL
+    LOG_DIR: Path = _PROJECT_ROOT / "logs"     # where log files are written
+
 
 # ── Singleton instance — import this everywhere ────────────────────────────
 settings = Settings()

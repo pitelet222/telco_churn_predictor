@@ -19,6 +19,9 @@ if _root not in sys.path:
     sys.path.insert(0, _root)
 
 from config import settings
+from log_config import get_logger
+
+logger = get_logger(__name__)
 
 # ── Paths ────────────────────────────────────────────────────────────────────
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -81,6 +84,7 @@ def _load_artifacts():
     """
     global _models, _scaler, _metadata
     if _models is None:
+        logger.info("Loading model artifacts from %s", MODELS_DIR)
         _models = {
             "lr": joblib.load(MODELS_DIR / "logistic_regression.pkl"),
             "gb": joblib.load(MODELS_DIR / "gradient_boosting.pkl"),
@@ -89,6 +93,7 @@ def _load_artifacts():
         _scaler = joblib.load(MODELS_DIR / "scaler.pkl")
         with open(MODELS_DIR / "model_metadata.json") as f:
             _metadata = json.load(f)
+        logger.info("All artifacts loaded successfully")
     return _models, _scaler, _metadata
 
 
@@ -100,8 +105,10 @@ def _get_explainer() -> shap.TreeExplainer:
     """
     global _explainer
     if _explainer is None:
+        logger.info("Initialising SHAP TreeExplainer...")
         models, _, _ = _load_artifacts()
         _explainer = shap.TreeExplainer(models["gb"])
+        logger.info("SHAP explainer ready")
     return _explainer
 
 
@@ -236,9 +243,16 @@ def predict_churn(customer_data: dict) -> dict:
     try:
         risk_factors = _detect_risk_factors_shap(features_scaled.values, features)
         risk_source = "shap"
-    except Exception:
+        logger.debug("SHAP risk factors computed (%d factors)", len(risk_factors))
+    except Exception as exc:
         risk_factors = _detect_risk_factors(customer_data, proba)
         risk_source = "manual"
+        logger.warning("SHAP failed, using manual fallback: %s", exc)
+
+    logger.info(
+        "Prediction complete: probability=%.4f, risk=%s, source=%s",
+        proba, risk, risk_source,
+    )
 
     return {
         "churn_probability": round(float(proba), 4),

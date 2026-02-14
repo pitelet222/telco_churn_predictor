@@ -51,6 +51,12 @@ class TestDefaults:
     def test_app_icon_default(self):
         assert settings.APP_ICON == "🛡️"
 
+    def test_log_level_default(self):
+        assert settings.LOG_LEVEL == "INFO"
+
+    def test_log_dir_default(self):
+        assert str(settings.LOG_DIR).endswith("logs")
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 #  TYPES
@@ -80,6 +86,12 @@ class TestTypes:
 
     def test_random_state_is_int(self):
         assert isinstance(settings.RANDOM_STATE, int)
+
+    def test_log_level_is_str(self):
+        assert isinstance(settings.LOG_LEVEL, str)
+
+    def test_log_dir_is_path(self):
+        assert isinstance(settings.LOG_DIR, Path)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -123,6 +135,10 @@ class TestConstraints:
 
     def test_cv_folds_at_least_2(self):
         assert settings.CV_FOLDS >= 2
+
+    def test_log_level_is_valid(self):
+        valid = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
+        assert settings.LOG_LEVEL.upper() in valid
 
     def test_shap_top_n_positive(self):
         assert settings.SHAP_TOP_N > 0
