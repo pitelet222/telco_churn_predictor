@@ -5,7 +5,10 @@ An end-to-end data science project that predicts customer churn for a telecommun
 ![Python](https://img.shields.io/badge/Python-3.13-blue)
 ![Scikit-Learn](https://img.shields.io/badge/Scikit--Learn-1.8.0-orange)
 ![Streamlit](https://img.shields.io/badge/Streamlit-App-red)
+![FastAPI](https://img.shields.io/badge/FastAPI-0.129.0-009688)
 ![OpenAI](https://img.shields.io/badge/OpenAI-GPT--4o--mini-green)
+![Tests](https://img.shields.io/badge/Tests-172%20passed-brightgreen)
+![CI](https://img.shields.io/github/actions/workflow/status/pitelet222/telco_churn_predictor/ci.yml?label=CI)
 
 ---
 
@@ -17,6 +20,9 @@ An end-to-end data science project that predicts customer churn for a telecommun
 - [Data Pipeline](#data-pipeline)
 - [Model Performance](#model-performance)
 - [GenAI Integration – ChurnGuard AI](#genai-integration--churnguard-ai)
+- [REST API](#rest-api)
+- [Testing](#testing)
+- [CI/CD](#cicd)
 - [Installation & Setup](#installation--setup)
 - [Usage](#usage)
 - [Technologies Used](#technologies-used)
@@ -71,6 +77,14 @@ telco-churn-prediction/
 │   ├── churn_service.py          # ML inference service (model loading + prediction)
 │   └── llm_client.py             # OpenAI GPT integration (retention advice)
 │
+├── api/                          # REST API (FastAPI)
+│   ├── main.py                   # App assembly (CORS, lifespan, routers)
+│   ├── schemas.py                # Pydantic request/response models
+│   └── routers/
+│       ├── health.py             # GET /health, GET /model/metadata
+│       ├── predict.py            # POST /predict
+│       └── advice.py             # POST /advice
+│
 ├── data/
 │   ├── raw/                      # Original dataset
 │   └── processed/                # Cleaned & feature-engineered dataset
@@ -94,8 +108,20 @@ telco-churn-prediction/
 │   ├── train.py
 │   └── evaluate.py
 │
+├── tests/                        # Test suite (172 tests)
+│   ├── conftest.py               # Shared fixtures (customer profiles)
+│   ├── test_api.py               # API endpoint tests (40 tests)
+│   ├── test_churn_service.py     # Core prediction tests
+│   ├── test_config.py            # Configuration tests
+│   ├── test_evaluate.py          # Evaluation utils tests
+│   ├── test_log_config.py        # Logging tests
+│   └── test_train.py             # Training pipeline tests
+│
+├── .github/workflows/ci.yml     # GitHub Actions CI pipeline
+├── config.py                     # Centralized settings (Pydantic BaseSettings)
+├── log_config.py                 # Rotating file + console logging
 ├── reports/figures/              # Saved plots and visualizations
-├── requirements.txt
+├── requirements.txt              # Pinned dependencies
 ├── .env.example                  # API key template
 └── README.md
 ```
@@ -197,6 +223,86 @@ app.py renders everything in Streamlit chat UI (supports follow-up questions)
 
 ---
 
+## REST API
+
+### What It Is
+A **FastAPI REST service** that exposes the churn prediction model over HTTP, allowing any application (CRM systems, mobile apps, automated scripts) to get predictions programmatically — without the Streamlit UI.
+
+### Endpoints
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/health` | Liveness probe — returns `{"status": "ok", "version": "1.0.0"}` |
+| `GET` | `/model/metadata` | Training metrics, model components, and training date |
+| `POST` | `/predict` | Accepts a customer profile, returns churn probability + risk level + SHAP factors |
+| `POST` | `/advice` | Runs prediction + calls GPT for personalised retention strategies |
+
+### Architecture
+```
+Client (any app) → POST /predict → schemas.py validates input
+     → churn_service.py encodes + scales + 3-model ensemble → PredictionResponse
+
+Client → POST /advice → prediction step above
+     → llm_client.py sends context to GPT → AdviceResponse (prediction + advice)
+```
+
+### Key Design Decisions
+- **Model preloading**: Artifacts load at startup (lifespan handler), so the first request isn't slow
+- **No logic duplication**: Routers call the same `predict_churn()` and `get_retention_advice()` used by Streamlit
+- **Strict validation**: `Literal` types reject invalid inputs before they reach the model (e.g., `"Contract": "Weekly"` → 422)
+- **Structured errors**: 422 for validation, 500 for model failures, 502 for LLM failures
+- **CORS enabled**: Frontend apps on other domains can call the API
+- **Interactive docs**: Auto-generated Swagger UI at `/docs`
+
+### Running the API
+```bash
+uvicorn api.main:app --reload          # Development (auto-reload)
+uvicorn api.main:app --workers 4       # Production (multiple workers)
+```
+
+---
+
+## Testing
+
+### Test Suite
+The project includes **172 tests** covering the core logic, configuration, logging, training pipeline, and API endpoints.
+
+| Test File | Tests | Coverage |
+|---|---|---|
+| `test_api.py` | 40 | All 4 API endpoints, input validation (422s), error handling, edge cases |
+| `test_churn_service.py` | ~40 | Feature encoding, prediction pipeline, SHAP, fallback rules, summaries |
+| `test_config.py` | ~18 | Default values, types, path validation, env overrides |
+| `test_evaluate.py` | ~12 | Metrics computation, confusion matrix, ROC, model comparison |
+| `test_log_config.py` | ~10 | Handler setup, file creation, log writing, suppression |
+| `test_train.py` | ~10 | Data loading, splitting, scaling, stratification, leakage detection |
+
+### Running Tests
+```bash
+# Run all tests
+python -m pytest tests/ -v
+
+# Run only API tests
+python -m pytest tests/test_api.py -v
+
+# Run with short traceback
+python -m pytest tests/ -v --tb=short
+```
+
+---
+
+## CI/CD
+
+The project uses **GitHub Actions** to run the full test suite automatically on every push and pull request to `master`.
+
+### Pipeline (`.github/workflows/ci.yml`)
+```
+Push to master → GitHub spins up Ubuntu VM → Installs Python 3.13 + dependencies → Runs pytest (172 tests) → Reports pass/fail
+```
+
+Results are visible as ✅/❌ on commits and pull requests in the GitHub repo.
+
+---
+
 ## Installation & Setup
 
 ### Prerequisites
@@ -232,11 +338,39 @@ The app will open at `http://localhost:8501`.
 
 ## Usage
 
+### Streamlit Chatbot
 1. **Fill in customer details** in the sidebar (gender, tenure, contract, services, charges, etc.)
 2. Click **"🔍 Predict Churn Risk"**
 3. View the **churn probability**, **risk level** (Low/Medium/High/Very High), and **risk factors**
 4. Read the **AI-generated retention strategy** with specific actions and an agent script
 5. Ask **follow-up questions** in the chat (e.g., "What discount should we offer?")
+
+### REST API
+1. Start the server: `uvicorn api.main:app --reload`
+2. Open **Swagger docs**: `http://127.0.0.1:8000/docs`
+3. Use **POST /predict** with a customer JSON payload to get a churn prediction
+4. Use **POST /advice** to also get AI-generated retention recommendations
+
+**Example (Python):**
+```python
+import requests
+
+customer = {
+    "gender": "Female", "SeniorCitizen": "No", "Partner": "Yes",
+    "Dependents": "No", "tenure": 3, "PhoneService": "Yes",
+    "MultipleLines": "No", "InternetService": "Fiber optic",
+    "OnlineSecurity": "No", "OnlineBackup": "No",
+    "DeviceProtection": "No", "TechSupport": "No",
+    "StreamingTV": "Yes", "StreamingMovies": "Yes",
+    "Contract": "Month-to-month", "PaymentMethod": "Electronic check",
+    "PaperlessBilling": "Yes", "MonthlyCharges": 85.50,
+    "TotalCharges": 256.50,
+}
+
+response = requests.post("http://127.0.0.1:8000/predict", json=customer)
+print(response.json())
+# → {"churn_probability": 0.7576, "risk_level": "Very High", ...}
+```
 
 ---
 
@@ -246,10 +380,13 @@ The app will open at `http://localhost:8501`.
 |---|---|
 | **Data Analysis** | Pandas, NumPy, SciPy, Statsmodels |
 | **Visualization** | Matplotlib, Seaborn, Plotly |
-| **Machine Learning** | Scikit-Learn, XGBoost, LightGBM, CatBoost |
+| **Machine Learning** | Scikit-Learn, XGBoost, LightGBM, CatBoost, SHAP |
 | **Generative AI** | OpenAI GPT-4o-mini |
 | **Web App** | Streamlit |
-| **Environment** | python-dotenv |
+| **REST API** | FastAPI, Uvicorn, Pydantic |
+| **Testing** | Pytest (172 tests) |
+| **CI/CD** | GitHub Actions |
+| **Configuration** | Pydantic Settings, python-dotenv |
 | **Serialisation** | Joblib (model persistence) |
 
 ---
