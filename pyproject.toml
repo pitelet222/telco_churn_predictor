@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "telco-churn-prediction"
+version = "1.0.0"
+description = "Telco Customer Churn Prediction & AI Retention Chatbot"
+requires-python = ">=3.11"
+
+[tool.setuptools]
+py-modules = ["config", "log_config"]
+
+[tool.setuptools.packages.find]
+include = ["src*", "app*", "api*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

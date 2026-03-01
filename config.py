@@ -26,6 +26,8 @@ To change a setting for one run without editing files:
 """
 
 from pathlib import Path
+from typing import Literal
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -50,6 +52,9 @@ class Settings(BaseSettings):
     OPENAI_TEMPERATURE: float = 0.7
     OPENAI_MAX_TOKENS: int = 600
 
+    # ── Environment ────────────────────────────────────────────────────────
+    ENVIRONMENT: Literal["development", "staging", "production"] = "development"
+
     # ── Paths ──────────────────────────────────────────────────────────────
     DATA_PATH: Path = _PROJECT_ROOT / "data" / "processed" / "telco_churn_cleaned.csv"
     MODELS_DIR: Path = _PROJECT_ROOT / "models"
@@ -61,6 +66,7 @@ class Settings(BaseSettings):
 
     # ── Prediction / SHAP ─────────────────────────────────────────────────
     SHAP_TOP_N: int = 5                        # number of top SHAP factors shown
+    CHURN_THRESHOLD: float = 0.5               # classification cutoff (lower → more recall)
 
     # ── Streamlit UI ───────────────────────────────────────────────────────
     APP_TITLE: str = "ChurnGuard AI"
@@ -72,6 +78,9 @@ class Settings(BaseSettings):
     API_HOST: str = "0.0.0.0"
     API_PORT: int = 8000
     API_CORS_ORIGINS: list[str] = ["*"]
+
+    # ── API Security ───────────────────────────────────────────────────────
+    API_KEY: str = ""                          # if set, require X-API-Key header
 
     # ── Logging ────────────────────────────────────────────────────────────
     LOG_LEVEL: str = "INFO"                    # DEBUG, INFO, WARNING, ERROR, CRITICAL

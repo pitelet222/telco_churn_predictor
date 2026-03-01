@@ -46,11 +46,14 @@ def _convert_total_charges(df: pd.DataFrame) -> pd.DataFrame:
 def _encode_binary_yes_no(df: pd.DataFrame) -> pd.DataFrame:
 	mapping = {"yes": 1, "no": 0}
 	df = df.copy()
+	# Detect binary yes/no columns: for single-record DataFrames we can't
+	# rely on both values being present, so check if ALL values are in {yes, no}.
 	binary_cols = [
 		col
 		for col in df.columns
 		if df[col].dtype in ["object", "string"]
-		and set(df[col].dropna().unique()) == {"yes", "no"}
+		and df[col].dropna().isin({"yes", "no"}).all()
+		and len(df[col].dropna()) > 0
 	]
 	if binary_cols:
 		df[binary_cols] = df[binary_cols].replace(mapping)

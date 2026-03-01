@@ -9,7 +9,7 @@ Covers:
     - Input validation       → Pydantic rejects bad payloads (422)
 """
 
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, AsyncMock
 
 import pytest
 from fastapi.testclient import TestClient
@@ -212,9 +212,10 @@ class TestAdviceEndpoint:
 
     @pytest.fixture
     def _mock_llm(self):
-        """Patch the LLM call so tests don't hit OpenAI."""
+        """Patch the async LLM call so tests don't hit OpenAI."""
         with patch(
-            "api.routers.advice.get_retention_advice",
+            "api.routers.advice.aget_retention_advice",
+            new_callable=AsyncMock,
             return_value="## Mocked advice\n- Offer a discount\n- Upgrade contract",
         ) as mock:
             yield mock
@@ -261,7 +262,8 @@ class TestAdviceEndpoint:
     def test_llm_failure_returns_502(self, client, high_risk_customer):
         """If the LLM call fails, the API should return 502."""
         with patch(
-            "api.routers.advice.get_retention_advice",
+            "api.routers.advice.aget_retention_advice",
+            new_callable=AsyncMock,
             side_effect=Exception("OpenAI is down"),
         ):
             payload = {"customer": high_risk_customer}

@@ -30,12 +30,6 @@ import lightgbm as lgb
 from catboost import CatBoostClassifier
 
 from src.evaluate import evaluate_model
-
-import sys
-_root = str(Path(__file__).resolve().parent.parent)
-if _root not in sys.path:
-    sys.path.insert(0, _root)
-
 from config import settings
 from log_config import get_logger
 

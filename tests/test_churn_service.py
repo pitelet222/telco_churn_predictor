@@ -15,7 +15,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from churn_service import (
+from app.churn_service import (
     FEATURE_COLUMNS,
     _encode_customer,
     _detect_risk_factors,

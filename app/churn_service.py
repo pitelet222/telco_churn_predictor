@@ -13,11 +13,6 @@ import shap
 from pathlib import Path
 from typing import Any
 
-import sys
-_root = str(Path(__file__).resolve().parent.parent)
-if _root not in sys.path:
-    sys.path.insert(0, _root)
-
 from config import settings
 from log_config import get_logger
 
@@ -228,12 +223,13 @@ def predict_churn(customer_data: dict) -> dict:
     ])
     proba = float(probas.mean())
 
-    # Risk level
-    if proba < 0.25:
+    # Risk level — uses configurable threshold for the Low/Medium boundary
+    threshold = settings.CHURN_THRESHOLD
+    if proba < threshold * 0.5:
         risk = "Low"
-    elif proba < 0.50:
+    elif proba < threshold:
         risk = "Medium"
-    elif proba < 0.75:
+    elif proba < threshold * 1.5:
         risk = "High"
     else:
         risk = "Very High"

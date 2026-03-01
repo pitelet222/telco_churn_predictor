@@ -3,16 +3,9 @@ LLM Client – OpenAI Integration
 Sends customer churn context to GPT and returns a retention-focused response.
 """
 
-import sys
-from pathlib import Path
 from typing import Any
-from openai import OpenAI
+from openai import OpenAI, AsyncOpenAI
 from openai.types.chat import ChatCompletionMessageParam
-
-# Ensure project root is on sys.path so we can import config
-_root = str(Path(__file__).resolve().parent.parent)
-if _root not in sys.path:
-    sys.path.insert(0, _root)
 
 from config import settings
 from log_config import get_logger
@@ -20,6 +13,7 @@ from log_config import get_logger
 logger = get_logger(__name__)
 
 client = OpenAI(api_key=settings.OPENAI_API_KEY)
+async_client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
 
 # ── System prompt (retention specialist persona) ────────────────────────────
 SYSTEM_PROMPT = """You are **ChurnGuard AI**, an expert customer-retention assistant 
@@ -110,7 +104,65 @@ def get_retention_advice(
     return response.choices[0].message.content or ""
 
 
-def chat_general(user_message: str, conversation_history: list[ChatCompletionMessageParam] | None = None) -> str:
+# ── Async variants (for FastAPI async endpoints) ────────────────────────────
+
+def _build_retention_messages(
+    churn_result: dict[str, Any],
+    user_message: str = "",
+    conversation_history: list[ChatCompletionMessageParam] | None = None,
+) -> list[ChatCompletionMessageParam]:
+    """Build the message list for a retention-advice call (shared by sync & async)."""
+    prediction_context = (
+        f"## Churn Prediction Results\n"
+        f"- **Churn Probability**: {churn_result['churn_probability']*100:.1f}%\n"
+        f"- **Risk Level**: {churn_result['risk_level']}\n"
+        f"- **{churn_result['customer_summary']}**\n\n"
+        f"### Risk Factors Detected:\n"
+    )
+    for factor in churn_result.get("risk_factors", []):
+        prediction_context += f"- {factor}\n"
+
+    messages: list[ChatCompletionMessageParam] = [{"role": "system", "content": SYSTEM_PROMPT}]
+    if conversation_history:
+        messages.extend(conversation_history)
+
+    full_user_msg = prediction_context
+    if user_message:
+        full_user_msg += f"\n\n**Agent question**: {user_message}"
+    else:
+        full_user_msg += (
+            "\n\nPlease analyse this customer and provide retention recommendations."
+        )
+    messages.append({"role": "user", "content": full_user_msg})
+    return messages
+
+
+async def aget_retention_advice(
+    churn_result: dict[str, Any],
+    user_message: str = "",
+    conversation_history: list[ChatCompletionMessageParam] | None = None,
+) -> str:
+    """Async version of get_retention_advice — non-blocking for FastAPI."""
+    messages = _build_retention_messages(churn_result, user_message, conversation_history)
+
+    logger.info(
+        "Calling OpenAI async (%s) for retention advice — risk_level=%s",
+        settings.OPENAI_MODEL, churn_result.get("risk_level", "?"),
+    )
+    response = await async_client.chat.completions.create(
+        model=settings.OPENAI_MODEL,
+        messages=messages,
+        temperature=settings.OPENAI_TEMPERATURE,
+        max_tokens=settings.OPENAI_MAX_TOKENS,
+    )
+    logger.debug("OpenAI async response received (tokens: %s)", response.usage)
+    return response.choices[0].message.content or ""
+
+
+def chat_general(
+    user_message: str,
+    conversation_history: list[ChatCompletionMessageParam] | None = None,
+) -> str:
     """
     General-purpose chat (no prediction context).
     Useful when the user asks about churn strategies, KPIs, etc.

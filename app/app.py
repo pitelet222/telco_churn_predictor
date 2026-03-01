@@ -4,23 +4,23 @@ AI-powered retention assistant that predicts churn in real time
 and recommends personalised retention strategies via GPT.
 """
 
-import sys
-from pathlib import Path
 from typing import cast
-
-# Ensure project root and app dir are on sys.path so imports work
-_app_dir = str(Path(__file__).resolve().parent)
-_root_dir = str(Path(__file__).resolve().parent.parent)
-if _app_dir not in sys.path:
-    sys.path.insert(0, _app_dir)
-if _root_dir not in sys.path:
-    sys.path.insert(0, _root_dir)
 
 import streamlit as st
 from openai.types.chat import ChatCompletionMessageParam
+import sys as _sys
+import importlib as _il
+
+# Streamlit runs this file as __main__, which makes Python think
+# "app" == this file instead of the app/ package.  Fix by removing
+# the directory containing this script from sys.path so Python
+# resolves "app" as the installed package, not the filename.
+_this_dir = __import__("pathlib").Path(__file__).resolve().parent
+_sys.path = [p for p in _sys.path if __import__("pathlib").Path(p).resolve() != _this_dir]
+
 from config import settings
-from churn_service import predict_churn, CUSTOMER_FIELDS, get_model_metadata
-from llm_client import get_retention_advice, chat_general
+from app.churn_service import predict_churn, CUSTOMER_FIELDS, get_model_metadata
+from app.llm_client import get_retention_advice, chat_general
 
 # ── Page config ─────────────────────────────────────────────────────────────
 st.set_page_config(
