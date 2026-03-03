@@ -24,6 +24,8 @@ An end-to-end data science project that predicts customer churn for a telecommun
 - [Testing](#testing)
 - [CI/CD](#cicd)
 - [Installation & Setup](#installation--setup)
+- [Configuration](#configuration)
+- [Docker](#docker)
 - [Usage](#usage)
 - [Technologies Used](#technologies-used)
 
@@ -75,19 +77,20 @@ telco-churn-prediction/
 ├── app/                          # GenAI Chatbot Application
 │   ├── app.py                    # Streamlit UI (sidebar form + chat)
 │   ├── churn_service.py          # ML inference service (model loading + prediction)
-│   └── llm_client.py             # OpenAI GPT integration (retention advice)
+│   └── llm_client.py             # OpenAI GPT integration (sync + async)
 │
 ├── api/                          # REST API (FastAPI)
-│   ├── main.py                   # App assembly (CORS, lifespan, routers)
+│   ├── main.py                   # App assembly (CORS, auth middleware, routers)
 │   ├── schemas.py                # Pydantic request/response models
 │   └── routers/
 │       ├── health.py             # GET /health, GET /model/metadata
 │       ├── predict.py            # POST /predict
-│       └── advice.py             # POST /advice
+│       └── advice.py             # POST /advice (async)
 │
 ├── data/
 │   ├── raw/                      # Original dataset
-│   └── processed/                # Cleaned & feature-engineered dataset
+│   ├── processed/                # Cleaned & feature-engineered dataset
+│   └── tableau/                  # Tableau-ready export
 │
 ├── models/                       # Trained model artifacts
 │   ├── logistic_regression.pkl
@@ -108,6 +111,9 @@ telco-churn-prediction/
 │   ├── train.py
 │   └── evaluate.py
 │
+├── scripts/
+│   └── export_tableau_data.py    # Export cleaned data for Tableau dashboards
+│
 ├── tests/                        # Test suite (172 tests)
 │   ├── conftest.py               # Shared fixtures (customer profiles)
 │   ├── test_api.py               # API endpoint tests (40 tests)
@@ -118,11 +124,15 @@ telco-churn-prediction/
 │   └── test_train.py             # Training pipeline tests
 │
 ├── .github/workflows/ci.yml     # GitHub Actions CI pipeline
+├── pyproject.toml                # Package metadata & editable install config
 ├── config.py                     # Centralized settings (Pydantic BaseSettings)
 ├── log_config.py                 # Rotating file + console logging
+├── Dockerfile                    # Multi-stage production image (API)
+├── docker-compose.yml            # One-command API deployment
+├── requirements.txt              # Full dependencies (ML + app + API)
+├── requirements-api.txt          # API-only dependencies (lighter image)
 ├── reports/figures/              # Saved plots and visualizations
-├── requirements.txt              # Pinned dependencies
-├── .env.example                  # API key template
+├── .env.example                  # Environment variable template
 └── README.md
 ```
 
@@ -218,7 +228,7 @@ app.py renders everything in Streamlit chat UI (supports follow-up questions)
 | File | Role |
 |---|---|
 | `app/churn_service.py` | Loads trained models, encodes customer input (35 features), runs soft-voting prediction, detects risk factors |
-| `app/llm_client.py` | OpenAI integration with "ChurnGuard AI" retention persona, supports multi-turn history |
+| `app/llm_client.py` | OpenAI integration (sync + async clients) with "ChurnGuard AI" retention persona, supports multi-turn history |
 | `app/app.py` | Streamlit UI – sidebar form, prediction display, chat interface |
 
 ---
@@ -249,9 +259,11 @@ Client → POST /advice → prediction step above
 ### Key Design Decisions
 - **Model preloading**: Artifacts load at startup (lifespan handler), so the first request isn't slow
 - **No logic duplication**: Routers call the same `predict_churn()` and `get_retention_advice()` used by Streamlit
+- **Async /advice**: The advice endpoint uses `AsyncOpenAI` for non-blocking LLM calls under load
+- **API key auth**: Optional `X-API-Key` header middleware — activated when `API_KEY` is set in environment
 - **Strict validation**: `Literal` types reject invalid inputs before they reach the model (e.g., `"Contract": "Weekly"` → 422)
 - **Structured errors**: 422 for validation, 500 for model failures, 502 for LLM failures
-- **CORS enabled**: Frontend apps on other domains can call the API
+- **CORS with production warning**: `API_CORS_ORIGINS=["*"]` by default; logs a warning if left open in production
 - **Interactive docs**: Auto-generated Swagger UI at `/docs`
 
 ### Running the API
@@ -321,8 +333,9 @@ python -m venv venv
 venv\Scripts\activate       # Windows
 # source venv/bin/activate  # macOS/Linux
 
-# 3. Install dependencies
+# 3. Install dependencies + editable package
 pip install -r requirements.txt
+pip install -e .              # required — makes config, app, api, src importable
 
 # 4. Set up your OpenAI API key
 copy .env.example .env
@@ -371,6 +384,45 @@ response = requests.post("http://127.0.0.1:8000/predict", json=customer)
 print(response.json())
 # → {"churn_probability": 0.7576, "risk_level": "Very High", ...}
 ```
+
+---
+
+## Configuration
+
+All settings live in `config.py` (Pydantic `BaseSettings`). They can be overridden via environment variables or a `.env` file — environment variables always take priority.
+
+| Variable | Default | Description |
+|---|---|---|
+| `OPENAI_API_KEY` | `""` | Required for chatbot & /advice endpoint |
+| `OPENAI_MODEL` | `gpt-4o-mini` | OpenAI model name |
+| `ENVIRONMENT` | `development` | `development` \| `staging` \| `production` |
+| `CHURN_THRESHOLD` | `0.5` | Classification cutoff (lower → higher recall) |
+| `API_KEY` | `""` | If set, all API requests require `X-API-Key` header |
+| `API_CORS_ORIGINS` | `["*"]` | Restrict in production |
+| `SHAP_TOP_N` | `5` | Number of SHAP factors shown |
+| `LOG_LEVEL` | `INFO` | Logging verbosity |
+
+See `.env.example` for the full list with defaults.
+
+---
+
+## Docker
+
+The API can be deployed as a Docker container using the included multi-stage `Dockerfile` and `docker-compose.yml`.
+
+```bash
+# Build and start the API
+docker compose up --build -d
+
+# Check it's running
+curl http://localhost:8000/health
+# → {"status": "ok", "version": "1.0.0"}
+
+# Stop
+docker compose down
+```
+
+The image uses `requirements-api.txt` (lighter than the full `requirements.txt`) and runs Uvicorn on port 8000. Environment variables are loaded from `.env` via `env_file` in `docker-compose.yml`.
 
 ---
 
