@@ -66,7 +66,18 @@ class Settings(BaseSettings):
 
     # ── Prediction / SHAP ─────────────────────────────────────────────────
     SHAP_TOP_N: int = 5                        # number of top SHAP factors shown
-    CHURN_THRESHOLD: float = 0.5               # classification cutoff (lower → more recall)
+    # Cost-optimal cutoff from find_optimal_threshold() (see model_metadata.json
+    # -> threshold_analysis), given COST_FALSE_NEGATIVE/COST_FALSE_POSITIVE below:
+    # recall ~0.89 / precision ~0.46 at 0.17, vs recall ~0.51 at the naive 0.5 cutoff.
+    CHURN_THRESHOLD: float = 0.17              # classification cutoff (lower → more recall)
+
+    # ── Business cost (threshold optimization) ─────────────────────────────
+    # A missed churner (false negative) is assumed costlier than an
+    # unnecessary retention offer (false positive). Bain & Company estimate
+    # acquiring a new customer costs 5-25x more than retaining one, so the
+    # default ratio uses the conservative low end (5x).
+    COST_FALSE_NEGATIVE: float = 5.0           # relative cost of a missed churner
+    COST_FALSE_POSITIVE: float = 1.0           # relative cost of an unneeded retention offer
 
     # ── Streamlit UI ───────────────────────────────────────────────────────
     APP_TITLE: str = "ChurnGuard AI"

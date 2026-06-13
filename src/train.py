@@ -19,17 +19,36 @@ from pathlib import Path
 import joblib
 import numpy as np
 import pandas as pd
+from sklearn.calibration import CalibratedClassifierCV
 from sklearn.ensemble import GradientBoostingClassifier, RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import StratifiedKFold, train_test_split
 from sklearn.preprocessing import StandardScaler
-from sklearn.metrics import roc_auc_score
+from sklearn.metrics import average_precision_score, brier_score_loss, roc_auc_score
 
 import xgboost as xgb
 import lightgbm as lgb
 from catboost import CatBoostClassifier
+from sklearn.utils import ClassifierTags, Tags, TargetTags
 
-from src.evaluate import evaluate_model
+from src.evaluate import (
+    compute_overfitting_gap,
+    evaluate_model,
+    find_optimal_threshold,
+    l1_feature_selection_report,
+)
+
+# catboost 1.2.8 predates scikit-learn's __sklearn_tags__ API (sklearn >= 1.6),
+# so is_classifier(CatBoostClassifier()) fails with AttributeError. This is
+# needed for CalibratedClassifierCV (see calibrate_models) to accept CatBoost.
+if not hasattr(CatBoostClassifier, "__sklearn_tags__"):
+    CatBoostClassifier.__sklearn_tags__ = lambda self: Tags(
+        estimator_type="classifier",
+        target_tags=TargetTags(required=True),
+        transformer_tags=None,
+        regressor_tags=None,
+        classifier_tags=ClassifierTags(),
+    )
 from config import settings
 from log_config import get_logger
 
@@ -44,7 +63,11 @@ MODELS_DIR = settings.MODELS_DIR
 MODEL_CONFIGS: dict[str, tuple] = {
     "Logistic Regression": (
         LogisticRegression,
-        {"random_state": 42, "max_iter": 1000, "n_jobs": -1},
+        # L2 (ridge) regularization: shrinks coefficients without zeroing them
+        # out. C is the inverse regularization strength (lower C → stronger
+        # regularization). See l1_feature_selection_report() in
+        # src/evaluate.py for an L1-based feature-selection diagnostic.
+        {"random_state": 42, "max_iter": 1000, "n_jobs": -1, "C": 1.0, "penalty": "l2"},
     ),
     "Random Forest": (
         RandomForestClassifier,
@@ -52,7 +75,11 @@ MODEL_CONFIGS: dict[str, tuple] = {
     ),
     "Gradient Boosting": (
         GradientBoostingClassifier,
-        {"n_estimators": 100, "max_depth": 5, "learning_rate": 0.1,
+        # Tuned via src/tune.py (Optuna, 30 trials, 5-fold CV PR-AUC):
+        # 0.6576 -> 0.6684. More regularized than the prior defaults
+        # (fewer/shallower trees, subsampling, larger leaves).
+        {"n_estimators": 50, "max_depth": 4, "learning_rate": 0.0888,
+         "subsample": 0.8656, "min_samples_leaf": 28,
          "random_state": 42, "n_iter_no_change": 10},
     ),
     "XGBoost": (
@@ -67,13 +94,22 @@ MODEL_CONFIGS: dict[str, tuple] = {
     ),
     "CatBoost": (
         CatBoostClassifier,
-        {"iterations": 100, "depth": 5, "learning_rate": 0.1,
-         "random_state": 42, "verbose": False, "allow_writing_files": False},
+        # Tuned via src/tune.py (Optuna, 30 trials, 5-fold CV PR-AUC):
+        # 0.6651 -> 0.6707. More iterations but shallower trees and
+        # stronger L2 than the prior defaults.
+        {"iterations": 220, "depth": 3, "learning_rate": 0.0366,
+         "l2_leaf_reg": 8.0883, "random_state": 42, "verbose": False,
+         "allow_writing_files": False},
     ),
 }
 
 # Models selected for the soft-voting ensemble (top 3 by ROC-AUC)
 ENSEMBLE_COMPONENTS = ["Logistic Regression", "Gradient Boosting", "CatBoost"]
+
+# Tree ensembles tend to be overconfident; calibrate their probabilities with
+# isotonic regression before they feed the soft-voting ensemble, the API, and
+# the LLM advisor. Logistic Regression is already well-calibrated by design.
+CALIBRATED_COMPONENTS = ["Gradient Boosting", "CatBoost"]
 
 
 # ── Core functions ───────────────────────────────────────────────────────────
@@ -149,6 +185,41 @@ def train_all_models(
     return trained
 
 
+def calibrate_models(
+    trained: dict[str, tuple],
+    X_train: pd.DataFrame,
+    y_train: pd.Series,
+    X_test: pd.DataFrame,
+    y_test: pd.Series,
+    names: list[str] = CALIBRATED_COMPONENTS,
+) -> tuple[dict[str, tuple], dict[str, dict[str, float]]]:
+    """Calibrate probability outputs of tree ensembles with isotonic regression.
+
+    Returns a copy of ``trained`` where each model in ``names`` is replaced
+    by a ``CalibratedClassifierCV`` (5-fold isotonic), plus a report of the
+    Brier score before/after calibration for each calibrated model.
+    """
+    calibrated = dict(trained)
+    report: dict[str, dict[str, float]] = {}
+
+    for name in names:
+        raw_model, train_time = trained[name]
+        brier_before = brier_score_loss(y_test, raw_model.predict_proba(X_test)[:, 1])
+
+        cls, params = MODEL_CONFIGS[name]
+        calibrated_model = CalibratedClassifierCV(cls(**params), method="isotonic", cv=5)
+        calibrated_model.fit(X_train, y_train)
+        brier_after = brier_score_loss(y_test, calibrated_model.predict_proba(X_test)[:, 1])
+
+        calibrated[name] = (calibrated_model, train_time)
+        report[name] = {"brier_before": float(brier_before), "brier_after": float(brier_after)}
+        logger.info(
+            "Calibrated %s — Brier %.4f -> %.4f", name, brier_before, brier_after
+        )
+
+    return calibrated, report
+
+
 def ensemble_predict_proba(
     models: dict,
     X: pd.DataFrame,
@@ -197,6 +268,11 @@ def save_artifacts(
     cv_scores: np.ndarray,
     X_train: pd.DataFrame,
     X_test: pd.DataFrame,
+    calibration_report: dict | None = None,
+    threshold_analysis: dict | None = None,
+    regularization: dict | None = None,
+    l1_feature_selection: dict | None = None,
+    per_model_gaps: dict | None = None,
     output_dir: Path = MODELS_DIR,
 ) -> None:
     """Save ensemble component models, scaler, and metadata to disk."""
@@ -223,9 +299,14 @@ def save_artifacts(
         "ensemble_components": ENSEMBLE_COMPONENTS,
         "weights": [round(1 / len(ENSEMBLE_COMPONENTS), 6)] * len(ENSEMBLE_COMPONENTS),
         "voting_method": "soft (probability averaging)",
+        "calibration": calibration_report or {},
         **ensemble_metrics,
         "cv_roc_auc_mean": float(cv_scores.mean()),
         "cv_roc_auc_std": float(cv_scores.std()),
+        "threshold_analysis": threshold_analysis or {},
+        "regularization": regularization or {},
+        "l1_feature_selection": l1_feature_selection or {},
+        "per_model_train_test_gap": per_model_gaps or {},
         "train_set_size": len(X_train),
         "test_set_size": len(X_test),
         "n_features": X_train.shape[1],
@@ -261,40 +342,120 @@ def run_training_pipeline() -> None:
     logger.info("Training models...")
     trained = train_all_models(X_train, y_train)
 
-    # 4. Evaluate each model
+    # 4. Evaluate each model (test metrics + train-test gap for overfitting)
     logger.info("Evaluating models...")
     results = []
+    gap_reports = {}
     for name, (model, train_time) in trained.items():
         metrics = evaluate_model(model, X_test, y_test)
-        result = {**metrics, "Model": name, "Training Time": train_time}
+        gap = compute_overfitting_gap(model, X_train, y_train, X_test, y_test)
+        gap_reports[name] = gap
+        result = {
+            **metrics,
+            "Model": name,
+            "Training Time": train_time,
+            "ROC-AUC Gap": gap["roc_auc_gap"],
+            "PR-AUC Gap": gap["pr_auc_gap"],
+        }
         results.append(result)
 
-    results_df = pd.DataFrame(results).sort_values("ROC-AUC", ascending=False)
+    results_df = pd.DataFrame(results).sort_values("PR-AUC", ascending=False)
     logger.info("Model comparison:\n%s", results_df.to_string(index=False))
 
-    # 5. Ensemble evaluation
+    # 5. Calibration analysis (isotonic regression) — reported, not yet deployed.
+    # The saved gradient_boosting.pkl / catboost_model.pkl stay uncalibrated
+    # because app/churn_service.py builds a shap.TreeExplainer directly from
+    # these artifacts, which requires the raw tree estimator.
+    logger.info("Checking calibration of %s...", ", ".join(CALIBRATED_COMPONENTS))
+    _, calibration_report = calibrate_models(trained, X_train, y_train, X_test, y_test)
+
+    # 6. Ensemble evaluation
     logger.info("Evaluating ensemble...")
     proba_ensemble = ensemble_predict_proba(trained, X_test)
-    y_pred_ensemble = (proba_ensemble >= 0.5).astype(int)
+    proba_ensemble_train = ensemble_predict_proba(trained, X_train)
+    y_pred_ensemble = (proba_ensemble >= settings.CHURN_THRESHOLD).astype(int)
 
     from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
+    ensemble_train_roc_auc = float(roc_auc_score(y_train, proba_ensemble_train))
+    ensemble_train_pr_auc = float(average_precision_score(y_train, proba_ensemble_train))
+    ensemble_test_roc_auc = float(roc_auc_score(y_test, proba_ensemble))
+    ensemble_test_pr_auc = float(average_precision_score(y_test, proba_ensemble))
     ensemble_metrics = {
-        "test_roc_auc": float(roc_auc_score(y_test, proba_ensemble)),
+        "test_roc_auc": ensemble_test_roc_auc,
+        "test_pr_auc": ensemble_test_pr_auc,
+        "test_brier": float(brier_score_loss(y_test, proba_ensemble)),
         "test_accuracy": float(accuracy_score(y_test, y_pred_ensemble)),
-        "test_precision": float(precision_score(y_test, y_pred_ensemble)),
-        "test_recall": float(recall_score(y_test, y_pred_ensemble)),
-        "test_f1": float(f1_score(y_test, y_pred_ensemble)),
+        "test_precision": float(precision_score(y_test, y_pred_ensemble, zero_division=0)),
+        "test_recall": float(recall_score(y_test, y_pred_ensemble, zero_division=0)),
+        "test_f1": float(f1_score(y_test, y_pred_ensemble, zero_division=0)),
+        "train_roc_auc": ensemble_train_roc_auc,
+        "train_pr_auc": ensemble_train_pr_auc,
+        "roc_auc_gap": ensemble_train_roc_auc - ensemble_test_roc_auc,
+        "pr_auc_gap": ensemble_train_pr_auc - ensemble_test_pr_auc,
     }
-    logger.info("Ensemble ROC-AUC: %.4f", ensemble_metrics["test_roc_auc"])
+    logger.info(
+        "Ensemble ROC-AUC: %.4f | PR-AUC: %.4f | Brier: %.4f",
+        ensemble_metrics["test_roc_auc"],
+        ensemble_metrics["test_pr_auc"],
+        ensemble_metrics["test_brier"],
+    )
+    logger.info(
+        "Ensemble train-test gap — ROC-AUC: %.4f | PR-AUC: %.4f",
+        ensemble_metrics["roc_auc_gap"],
+        ensemble_metrics["pr_auc_gap"],
+    )
 
-    # 6. Cross-validation
+    # 7. Cost-based threshold optimization
+    threshold_analysis = find_optimal_threshold(
+        y_test,
+        proba_ensemble,
+        cost_fn=settings.COST_FALSE_NEGATIVE,
+        cost_fp=settings.COST_FALSE_POSITIVE,
+    )
+    logger.info(
+        "Optimal threshold (cost FN=%.1f, FP=%.1f): %.2f "
+        "(precision=%.4f, recall=%.4f, f1=%.4f) vs configured CHURN_THRESHOLD=%.2f",
+        settings.COST_FALSE_NEGATIVE,
+        settings.COST_FALSE_POSITIVE,
+        threshold_analysis["threshold"],
+        threshold_analysis["precision"],
+        threshold_analysis["recall"],
+        threshold_analysis["f1"],
+        settings.CHURN_THRESHOLD,
+    )
+
+    # 8. Cross-validation
     logger.info("Cross-validating ensemble (%d-fold)...", settings.CV_FOLDS)
     cv_scores = cross_validate_ensemble(trained, X_train, y_train)
     logger.info("CV ROC-AUC: %.4f ± %.4f", cv_scores.mean(), cv_scores.std())
 
-    # 7. Save
+    # 9. L1 feature-selection diagnostic (separate from the deployed L2 model)
+    lr_params = MODEL_CONFIGS["Logistic Regression"][1]
+    l1_report = l1_feature_selection_report(
+        X_train, y_train, C=lr_params.get("C", 1.0), random_state=settings.RANDOM_STATE
+    )
+    logger.info(
+        "L1 feature selection: %d/%d features kept (C=%.2f)",
+        l1_report["n_features_selected"], l1_report["n_features_total"], l1_report["C"],
+    )
+    if l1_report["zeroed_features"]:
+        logger.info("L1 zeroed out: %s", ", ".join(l1_report["zeroed_features"]))
+
+    regularization = {
+        "Logistic Regression": {
+            "C": lr_params.get("C", 1.0),
+            "penalty": lr_params.get("penalty", "l2"),
+        }
+    }
+
+    # 10. Save
     logger.info("Saving artifacts...")
-    save_artifacts(trained, scaler, ensemble_metrics, cv_scores, X_train, X_test)
+    save_artifacts(
+        trained, scaler, ensemble_metrics, cv_scores, X_train, X_test,
+        calibration_report=calibration_report, threshold_analysis=threshold_analysis,
+        regularization=regularization, l1_feature_selection=l1_report,
+        per_model_gaps=gap_reports,
+    )
 
     logger.info("=" * 70)
     logger.info("TRAINING PIPELINE COMPLETE")

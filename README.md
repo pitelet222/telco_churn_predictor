@@ -34,7 +34,7 @@ An end-to-end data science project that predicts customer churn for a telecommun
 ## Project Overview
 
 ### Business Problem
-Customer churn is one of the most critical challenges for telecom companies. Acquiring a new customer costs **5-7x more** than retaining an existing one. This project builds a machine learning pipeline to:
+Customer churn is one of the most critical challenges for telecom companies. Bain & Company estimate that acquiring a new customer costs **5-25x more** than retaining an existing one — this project uses the conservative low end of that range (5x) to tune the classification threshold. This project builds a machine learning pipeline to:
 
 1. **Predict** which customers are likely to churn
 2. **Identify** the key risk factors driving churn
@@ -172,26 +172,60 @@ telco-churn-prediction/
 
 ### Models Evaluated
 
-| Rank | Model | ROC-AUC | Accuracy | Precision | Recall | F1 |
-|---|---|---|---|---|---|---|
-| 🥇 | **Ensemble (LR + GB + CatBoost)** | **0.8470** | 80.22% | 66.74% | 50.80% | 0.577 |
-| 🥈 | CatBoost | 0.8452 | – | – | – | – |
-| 🥉 | Logistic Regression | 0.8446 | – | – | – | – |
-| 4 | Gradient Boosting | 0.8396 | – | – | – | – |
-| 5 | XGBoost | 0.8358 | – | – | – | – |
-| 6 | LightGBM | 0.8324 | – | – | – | – |
-| 7 | Random Forest | 0.8278 | – | – | – | – |
+All metrics below (except where noted) use the default 0.5 decision threshold, so models can be compared on equal footing.
+
+| Rank | Model | ROC-AUC | PR-AUC | Accuracy | Precision | Recall | F1 | Brier |
+|---|---|---|---|---|---|---|---|---|
+| 🥇 | **Ensemble (LR + GB + CatBoost)** | **0.8470** | 0.6595 | 80.22% | 66.74% | 50.80% | 0.577 | 0.1347 |
+| 🥈 | CatBoost | 0.8452 | 0.6642 | 80.22% | 66.44% | 51.52% | 0.580 | 0.1347 |
+| 🥉 | Logistic Regression | 0.8446 | 0.6433 | 80.31% | 66.29% | 52.58% | 0.586 | 0.1364 |
+| 4 | Gradient Boosting | 0.8396 | 0.6460 | 79.08% | 63.49% | 49.91% | 0.559 | 0.1380 |
+| 5 | XGBoost | 0.8358 | 0.6394 | 79.13% | 63.82% | 49.38% | 0.557 | 0.1390 |
+| 6 | LightGBM | 0.8324 | 0.6341 | 79.46% | 65.01% | 49.02% | 0.559 | 0.1403 |
+| 7 | Random Forest | 0.8278 | 0.6288 | 79.18% | 63.66% | 50.27% | 0.562 | 0.1419 |
+
+With ~26.5% churn, a trivial "nobody churns" classifier would already score ~73.5% accuracy — so **PR-AUC (average precision)** is tracked as the primary metric for the minority (churn) class, and **Brier score** tracks probability calibration (lower = better; these probabilities feed the API and the LLM advisor).
 
 ### Selected Model: Soft Voting Ensemble
 - **Strategy**: Average predicted probabilities from 3 best models
 - **Components**: Logistic Regression + Gradient Boosting + CatBoost
-- **Cross-validation**: 5-fold Stratified CV, ROC-AUC = 0.8476 ± 0.012
-- **Stability**: Train ≈ Test performance (no overfitting detected)
+- **Cross-validation**: 5-fold Stratified CV, ROC-AUC = 0.8479 ± 0.012
+- **Stability**: small train-test gap (ROC-AUC 0.886 → 0.847, Δ0.039; PR-AUC 0.750 → 0.659, Δ0.091) — mild overfitting, well within the range expected for a soft-voting ensemble of tree models
 
 ### Why This Model?
 - All 6 models performed within 0.6% ROC-AUC of each other → data is highly linearly separable
-- Ensemble adds +0.24% improvement via model diversity
+- Ensemble adds a small but consistent improvement via model diversity
 - Simple averaging is robust and fast for production inference
+
+### Decision Threshold: Cost-Based Tuning
+At the default 0.5 cutoff, the ensemble only catches **50.80% of churners** (recall) — every missed churner is a false negative. Since acquiring a replacement customer costs an estimated 5-25x more than retaining one (see [Business Problem](#business-problem)), `find_optimal_threshold()` in `src/evaluate.py` searches for the cutoff that minimizes `COST_FALSE_NEGATIVE × FN + COST_FALSE_POSITIVE × FP` (defaults: 5.0 / 1.0, the conservative low end of that range).
+
+| Threshold | Accuracy | Precision | Recall | F1 |
+|---|---|---|---|---|
+| 0.50 (naive) | 80.22% | 66.74% | 50.80% | 0.577 |
+| **0.19 (cost-optimal, deployed)** | 70.85% | 47.35% | **87.52%** | 0.615 |
+
+`CHURN_THRESHOLD=0.19` is the deployed default (see [Configuration](#configuration)) — it trades precision for a near-doubling of recall, catching most at-risk customers at the cost of more (cheaper) unnecessary retention offers. Re-run `python -m src.train` to recompute this analysis (written to `models/model_metadata.json` → `threshold_analysis`); tune `COST_FALSE_NEGATIVE`/`COST_FALSE_POSITIVE` to match actual retention-offer economics.
+
+### Probability Calibration
+Tree ensembles (Gradient Boosting, CatBoost) tend to be overconfident. `src/train.py` fits an isotonic `CalibratedClassifierCV` for both during training and reports the Brier score before/after (`model_metadata.json` → `calibration`) — currently a diagnostic only; the deployed `gradient_boosting.pkl`/`catboost_model.pkl` stay uncalibrated because `app/churn_service.py` builds a SHAP `TreeExplainer` directly from those artifacts.
+
+### Bias-Variance: Train-Test Gap & Regularization
+`compute_overfitting_gap()` in `src/evaluate.py` compares train vs. test ROC-AUC/PR-AUC for every model and the ensemble, logging the gap to `model_metadata.json` → `per_model_train_test_gap` / `ensemble` (`roc_auc_gap`, `pr_auc_gap`) on every training run:
+
+| Model | Train ROC-AUC | Test ROC-AUC | Gap | Train PR-AUC | Test PR-AUC | Gap |
+|---|---|---|---|---|---|---|
+| Logistic Regression | 0.8501 | 0.8446 | 0.0056 | 0.6704 | 0.6433 | 0.0271 |
+| CatBoost | 0.8876 | 0.8452 | 0.0424 | 0.7503 | 0.6642 | 0.0861 |
+| Gradient Boosting | 0.9048 | 0.8396 | 0.0652 | 0.7875 | 0.6460 | 0.1415 |
+| XGBoost | 0.9226 | 0.8358 | 0.0868 | 0.8095 | 0.6394 | 0.1701 |
+| LightGBM | 0.9283 | 0.8324 | 0.0959 | 0.8219 | 0.6341 | 0.1878 |
+| Random Forest | 0.9995 | 0.8278 | 0.1717 | 0.9987 | 0.6288 | 0.3700 |
+| **Ensemble (deployed)** | 0.8863 | 0.8470 | **0.0393** | 0.7500 | 0.6595 | **0.0905** |
+
+Logistic Regression generalizes best (smallest gap, by far), while Random Forest overfits the most (near-perfect train scores, worst test scores) — consistent with its lack of early stopping or strong regularization. The ensemble's gap sits between its components, dragged up mainly by the tree models.
+
+The deployed Logistic Regression uses **L2 (ridge) regularization** (`C=1.0, penalty="l2"`, see `MODEL_CONFIGS` in `src/train.py`) — this hyperparameter pair is logged to `model_metadata.json` → `regularization` on every run. As a separate diagnostic, `l1_feature_selection_report()` fits an **L1 (lasso)** Logistic Regression (`C=1.0`) over the same 35 features for embedded feature selection (`model_metadata.json` → `l1_feature_selection`); it zeroes out 3 of 35 features as redundant: `Partner`, `MonthlyCharges`, `TotalServices` (the latter two are likely correlated with other charge/service-count features — see [Feature Engineering](#data-pipeline)). This does not change the deployed model — it's informational only.
 
 ---
 
@@ -396,7 +430,9 @@ All settings live in `config.py` (Pydantic `BaseSettings`). They can be overridd
 | `OPENAI_API_KEY` | `""` | Required for chatbot & /advice endpoint |
 | `OPENAI_MODEL` | `gpt-4o-mini` | OpenAI model name |
 | `ENVIRONMENT` | `development` | `development` \| `staging` \| `production` |
-| `CHURN_THRESHOLD` | `0.5` | Classification cutoff (lower → higher recall) |
+| `CHURN_THRESHOLD` | `0.19` | Classification cutoff (cost-optimal default; lower → higher recall) |
+| `COST_FALSE_NEGATIVE` | `5.0` | Relative cost of a missed churner — used by `find_optimal_threshold()` |
+| `COST_FALSE_POSITIVE` | `1.0` | Relative cost of an unneeded retention offer — used by `find_optimal_threshold()` |
 | `API_KEY` | `""` | If set, all API requests require `X-API-Key` header |
 | `API_CORS_ORIGINS` | `["*"]` | Restrict in production |
 | `SHAP_TOP_N` | `5` | Number of SHAP factors shown |

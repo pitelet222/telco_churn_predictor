@@ -1,0 +1,54 @@
+{
+    "Logistic Regression": {
+        "model": "Logistic Regression",
+        "n_trials": 30,
+        "cv_folds": 5,
+        "best_params": {
+            "solver": "liblinear",
+            "max_iter": 1000,
+            "random_state": 42,
+            "C": 1.0913531461286456,
+            "penalty": "l2"
+        },
+        "best_cv_pr_auc": 0.6636908195507383,
+        "baseline_cv_pr_auc": 0.6634710447383378,
+        "improvement": 0.00021977481240043062,
+        "elapsed_seconds": 8.0
+    },
+    "Gradient Boosting": {
+        "model": "Gradient Boosting",
+        "n_trials": 30,
+        "cv_folds": 5,
+        "best_params": {
+            "n_iter_no_change": 10,
+            "random_state": 42,
+            "n_estimators": 50,
+            "max_depth": 4,
+            "learning_rate": 0.08878074980708205,
+            "subsample": 0.8655738040141766,
+            "min_samples_leaf": 28
+        },
+        "best_cv_pr_auc": 0.6684129475794615,
+        "baseline_cv_pr_auc": 0.6575810869593361,
+        "improvement": 0.010831860620125311,
+        "elapsed_seconds": 55.1
+    },
+    "CatBoost": {
+        "model": "CatBoost",
+        "n_trials": 30,
+        "cv_folds": 5,
+        "best_params": {
+            "verbose": false,
+            "allow_writing_files": false,
+            "random_state": 42,
+            "iterations": 220,
+            "depth": 3,
+            "learning_rate": 0.03662151611122799,
+            "l2_leaf_reg": 8.088304938572625
+        },
+        "best_cv_pr_auc": 0.6706750391043657,
+        "baseline_cv_pr_auc": 0.665114309787662,
+        "improvement": 0.005560729316703705,
+        "elapsed_seconds": 71.4
+    }
+}

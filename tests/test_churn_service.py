@@ -15,6 +15,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from config import settings
 from app.churn_service import (
     FEATURE_COLUMNS,
     _encode_customer,
@@ -256,29 +257,34 @@ class TestPredictChurn:
 
 
 class TestRiskLevels:
-    """Verify that churn probabilities map to the correct risk levels."""
+    """Verify that churn probabilities map to the correct risk levels.
 
-    @pytest.mark.parametrize("proba_range,expected_level", [
-        ((0.0, 0.24), "Low"),
-        ((0.25, 0.49), "Medium"),
-        ((0.50, 0.74), "High"),
-        ((0.75, 1.00), "Very High"),
+    Boundaries are relative to settings.CHURN_THRESHOLD (mirroring
+    app/churn_service.py: predict_churn), so this stays correct regardless
+    of where CHURN_THRESHOLD is tuned.
+    """
+
+    @pytest.mark.parametrize("proba_factor,expected_level", [
+        (0.25, "Low"),        # < threshold * 0.5
+        (0.75, "Medium"),     # < threshold
+        (1.25, "High"),       # < threshold * 1.5
+        (1.75, "Very High"),  # >= threshold * 1.5
     ])
-    def test_risk_level_boundaries(self, proba_range, expected_level):
-        """Each probability range should map to the correct risk level."""
-        # We test the mapping logic directly rather than via predict_churn()
-        # because we can't control the exact probability output.
-        low, high = proba_range
-        mid = (low + high) / 2
+    def test_risk_level_boundaries(self, proba_factor, expected_level):
+        """Each probability (relative to CHURN_THRESHOLD) maps to the correct risk level."""
+        threshold = settings.CHURN_THRESHOLD
+        proba = threshold * proba_factor
 
-        if mid < 0.25:
-            assert expected_level == "Low"
-        elif mid < 0.50:
-            assert expected_level == "Medium"
-        elif mid < 0.75:
-            assert expected_level == "High"
+        if proba < threshold * 0.5:
+            risk = "Low"
+        elif proba < threshold:
+            risk = "Medium"
+        elif proba < threshold * 1.5:
+            risk = "High"
         else:
-            assert expected_level == "Very High"
+            risk = "Very High"
+
+        assert risk == expected_level
 
 
 # ═══════════════════════════════════════════════════════════════════════════

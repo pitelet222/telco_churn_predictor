@@ -12,18 +12,141 @@
         0.333333
     ],
     "voting_method": "soft (probability averaging)",
-    "test_roc_auc": 0.8470164424720216,
-    "test_accuracy": 0.8021769995267393,
-    "test_precision": 0.667447306791569,
-    "test_recall": 0.5080213903743316,
-    "test_f1": 0.5769230769230769,
-    "cv_roc_auc_mean": 0.8479200456833222,
-    "cv_roc_auc_std": 0.011582662753095229,
+    "calibration": {
+        "Gradient Boosting": {
+            "brier_before": 0.13560438856538404,
+            "brier_after": 0.13585781628675608
+        },
+        "CatBoost": {
+            "brier_before": 0.13437008092581895,
+            "brier_after": 0.13411462822459008
+        }
+    },
+    "test_roc_auc": 0.8483246274142272,
+    "test_pr_auc": 0.6608150994292645,
+    "test_brier": 0.134414497995401,
+    "test_accuracy": 0.7027922385234264,
+    "test_precision": 0.4680648236415634,
+    "test_recall": 0.875222816399287,
+    "test_f1": 0.6099378881987577,
+    "train_roc_auc": 0.8658393026307125,
+    "train_pr_auc": 0.7066623969391211,
+    "roc_auc_gap": 0.01751467521648531,
+    "pr_auc_gap": 0.04584729750985661,
+    "cv_roc_auc_mean": 0.8487523026024855,
+    "cv_roc_auc_std": 0.010168024458241021,
+    "threshold_analysis": {
+        "threshold": 0.17,
+        "total_cost": 894.0,
+        "precision": 0.45594913714804725,
+        "recall": 0.8948306595365418,
+        "f1": 0.6040914560770156
+    },
+    "regularization": {
+        "Logistic Regression": {
+            "C": 1.0,
+            "penalty": "l2"
+        }
+    },
+    "l1_feature_selection": {
+        "C": 1.0,
+        "n_features_total": 35,
+        "n_features_selected": 32,
+        "selected_features": [
+            "gender",
+            "SeniorCitizen",
+            "Dependents",
+            "tenure",
+            "PhoneService",
+            "PaperlessBilling",
+            "TotalCharges",
+            "MultipleLines_no phone service",
+            "MultipleLines_yes",
+            "OnlineSecurity_no internet service",
+            "OnlineSecurity_yes",
+            "OnlineBackup_no internet service",
+            "OnlineBackup_yes",
+            "DeviceProtection_no internet service",
+            "DeviceProtection_yes",
+            "TechSupport_no internet service",
+            "TechSupport_yes",
+            "StreamingTV_no internet service",
+            "StreamingTV_yes",
+            "StreamingMovies_no internet service",
+            "StreamingMovies_yes",
+            "InternetService_fiber optic",
+            "InternetService_no",
+            "Contract_one year",
+            "Contract_two year",
+            "PaymentMethod_credit card (automatic)",
+            "PaymentMethod_electronic check",
+            "PaymentMethod_mailed check",
+            "AvgMonthlyCharges",
+            "TenureGroup_1-2yr",
+            "TenureGroup_2-4yr",
+            "TenureGroup_4-6yr"
+        ],
+        "zeroed_features": [
+            "Partner",
+            "MonthlyCharges",
+            "TotalServices"
+        ]
+    },
+    "per_model_train_test_gap": {
+        "Logistic Regression": {
+            "train_roc_auc": 0.8501496334834523,
+            "test_roc_auc": 0.8445941755333812,
+            "roc_auc_gap": 0.005555457950071063,
+            "train_pr_auc": 0.6704072366031042,
+            "test_pr_auc": 0.6432951677176351,
+            "pr_auc_gap": 0.02711206888546913
+        },
+        "Random Forest": {
+            "train_roc_auc": 0.9995329890222341,
+            "test_roc_auc": 0.8278393011375121,
+            "roc_auc_gap": 0.17169368788472195,
+            "train_pr_auc": 0.9987314431371601,
+            "test_pr_auc": 0.6287710562945663,
+            "pr_auc_gap": 0.3699603868425938
+        },
+        "Gradient Boosting": {
+            "train_roc_auc": 0.8791143403293162,
+            "test_roc_auc": 0.8448468539243252,
+            "roc_auc_gap": 0.034267486404991,
+            "train_pr_auc": 0.7344188313920673,
+            "test_pr_auc": 0.6575946509901719,
+            "pr_auc_gap": 0.07682418040189543
+        },
+        "XGBoost": {
+            "train_roc_auc": 0.9226339588008721,
+            "test_roc_auc": 0.8357992447213186,
+            "roc_auc_gap": 0.08683471407955345,
+            "train_pr_auc": 0.8095160787002359,
+            "test_pr_auc": 0.6393962386939439,
+            "pr_auc_gap": 0.170119840006292
+        },
+        "LightGBM": {
+            "train_roc_auc": 0.9283074297910999,
+            "test_roc_auc": 0.8323898092507855,
+            "roc_auc_gap": 0.09591762054031439,
+            "train_pr_auc": 0.821879284028655,
+            "test_pr_auc": 0.6341089354328825,
+            "pr_auc_gap": 0.18777034859577246
+        },
+        "CatBoost": {
+            "train_roc_auc": 0.8605808117906709,
+            "test_roc_auc": 0.8477865372953305,
+            "roc_auc_gap": 0.01279427449534043,
+            "train_pr_auc": 0.6943169682539496,
+            "test_pr_auc": 0.6636407622194754,
+            "pr_auc_gap": 0.030676206034474185
+        }
+    },
     "train_set_size": 4930,
     "test_set_size": 2113,
     "n_features": 35,
     "feature_scaling": "StandardScaler (fitted on training data)",
     "target_variable": "Churn",
-    "training_date": "2026-02-10 20:40:03",
+    "training_date": "2026-06-13 16:06:05",
     "notes": "Ensemble selected over individual models due to marginally better generalization"
 }
